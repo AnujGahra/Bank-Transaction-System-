@@ -42,7 +42,60 @@ async function userRegister(req, res) {
 }
 
 
+/**
+ * - user login controller
+ * - POST /api/auth/login
+ */
+async function userLogin(req, res) {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        return res.status(422).json({
+            message: "Please provide email and password",
+            status: "failed"
+        });
+    }
+
+    const user = await userModel.findOne({ email }).select('+password');
+
+    if (!user) {
+        return res.status(404).json({
+            message: "User not found with this email",
+            status: "failed"
+        });
+    }
+
+    const isPasswordMatch = await user.comparePassword(password);
+
+    if (!isPasswordMatch) {
+        return res.status(401).json({
+            message: "Invalid credentials",
+            status: "failed"
+        });
+    }
+
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '3d' });
+
+    res.cookie('token', token)
+    res.status(200).json({
+        user: {
+            _id: user._id,
+            name: user.name,
+            email: user.email
+        },
+        token,
+        message: "User logged in successfully",
+        status: "success"
+    })
+
+
+
+
+}
+
+
 
 module.exports = {
-    userRegister
+    userRegister,
+    userLogin
 }
