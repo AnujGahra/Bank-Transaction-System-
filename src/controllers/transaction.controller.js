@@ -1,6 +1,7 @@
 const ledgerModel = require('../models/ledger.model');
 const accountModel = require('../models/account.model');
 const transactionModel = require('../models/transaction.model');
+const mongoose = require('mongoose');
 
 /**
  * @desc Create a new transaction
@@ -84,5 +85,76 @@ async function createTransaction(req, res) {
             status: "failed"
         });
     }
+
+    /**
+     * `4. Derive sender balance from ledger
+     */
+
+    const balance = await fromUserAccount.getBalance();
+    
+    if(balance < amount) {
+        return res.status(400).json({
+            message: `Insufficient balance. Current balance is ${balance}. Requested amount is ${amount}`,
+            status: "failed"
+        });
+    }
+
+
+    /**
+     * 5. Create transaction record with status "pending"
+     */
+
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    
+        const transaction = await transactionModel.create({
+            fromAccount,
+            toAccount,
+            amount,
+            idempotencyKey,
+            status: "pending"
+        }, {session});
+
+        const debitLedgerEntry = await ledgerModel.create({
+            account: fromAccount,
+            amount: amount,
+            transaction: transaction._id,
+            type: "DEBIT"
+        }, {session});
+
+        const creditLedgerEntry = await ledgerModel.create({
+            account: toAccount,
+            amount: amount,
+            transaction: transaction._id,
+            type: "DEBIT"
+        }, {session});
+
+        transaction.status = "completed";
+        await transaction.save({session});
+
+        await session.commitTransaction();
+        session.endSession();
+
+        /**
+         * TODO: Implement email notification logic here
+         */
+
+        await emailService.sendTransactionEmail(req.user.email, req.user.name, amount, toUserAccount._id);
+
+
+        return res.status(201).json({
+            message: "Transaction completed successfully",
+            status: "success",
+            data: transaction
+        });
+
+
+
 }
+
+
+module.exports = {
+    createTransaction
+};
 
